@@ -10,6 +10,7 @@ import threading
 
 import boto3
 from boto3.s3 import transfer
+from distutils.dir_util import mkpath
 
 if os.environ.get('S3DL_DEFAULT_PROFILE', ''):
     boto3.setup_default_session(profile_name=os.environ.get(
@@ -43,6 +44,12 @@ class ProgressPercentage(object):
         with self._lock:
             uri = "s3://{}/{}".format(bucket, key)
             self._status[uri] = 'Completed'
+            self.draw()
+
+    def errored(self, bucket, key):
+        with self._lock:
+            uri = "s3://{}/{}".format(bucket, key)
+            self._status[uri] = 'Error'
             self.draw()
 
     def progress_callback(self, bucket, key):
@@ -103,20 +110,23 @@ progress = ProgressPercentage()
 
 
 def download_file(download):
-    downloader = transfer.S3Transfer(s3_client,
-                                     transfer.TransferConfig(),
-                                     transfer.OSUtils())
+    try:
+        downloader = transfer.S3Transfer(s3_client,
+                                        transfer.TransferConfig(),
+                                        transfer.OSUtils())
 
-    downloader.download_file(download.bucket,
-                             download.key,
-                             download.download_path,
-                             callback=progress.progress_callback(
-                                download.bucket,
-                                download.key))
-    progress.completed(download.bucket, download.key)
-    if os.path.isfile(download.file_path):
-        os.remove(download.file_path)
-    os.rename(download.download_path, download.file_path)
+        downloader.download_file(download.bucket,
+                                download.key,
+                                download.download_path,
+                                callback=progress.progress_callback(
+                                    download.bucket,
+                                    download.key))
+        progress.completed(download.bucket, download.key)
+        if os.path.isfile(download.file_path):
+            os.remove(download.file_path)
+        os.rename(download.download_path, download.file_path)
+    except Exception:
+        progress.errored(download.bucket, download.key)
 
 
 def parse_arguments(args):
@@ -147,6 +157,12 @@ def parse_arguments(args):
                         help="Number of files to download at once",
                         action="store",
                         default=1)
+    parser.add_argument("-k",
+                        "--keep-structure",
+                        type=bool,
+                        help="Keep remote folder structure",
+                        action="store",
+                        default=False)
 
     args = parser.parse_args(args[1:])
 
@@ -174,7 +190,7 @@ class DownloadInfo(object):
         return self.file_path + ".nc"
 
     @classmethod
-    def from_uri(cls, uri, download_directory, no_clobber):
+    def from_uri(cls, uri, download_directory, no_clobber, keep_structure):
         if not uri.startswith('s3://'):
             raise ValueError("'{}' is not a valid s3 URI".format(uri))
         bucket, key = uri[5:].split('/', 1)
@@ -184,8 +200,14 @@ class DownloadInfo(object):
             bucket = bucket.split('@')[-1]
 
         # Filename
-        filename = key.split('/')[-1]
-        file_path = os.path.join(download_directory, filename)
+        if keep_structure is True:
+            dir_path = os.path.join(download_directory, bucket, *key.split('/')[:-1])
+            mkpath(dir_path)
+
+            file_path = os.path.join(download_directory, bucket, key)
+        else:
+            filename = key.split('/')[-1]
+            file_path = os.path.join(download_directory, filename)
 
         return cls(bucket, key, file_path, no_clobber)
 
@@ -198,7 +220,7 @@ def main(args=sys.argv):
     signal.signal(signal.SIGINT, signal_handler)
 
     downloads = [
-        DownloadInfo.from_uri(uri, arguments.directory, arguments.no_clobber)
+        DownloadInfo.from_uri(uri, arguments.directory, arguments.no_clobber, arguments.keep_structure)
         for uri in arguments.URI]
     skipped = [d for d in downloads if d.clobbered()]
     downloads = [d for d in downloads if not d.clobbered()]
