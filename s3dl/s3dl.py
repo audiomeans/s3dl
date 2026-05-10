@@ -161,7 +161,7 @@ def parse_arguments(args):
                         "--keep-structure",
                         type=bool,
                         help="Keep remote folder structure",
-                        action="store",
+                        action="store_true",
                         default=False)
 
     args = parser.parse_args(args[1:])
@@ -234,11 +234,14 @@ def main(args=sys.argv):
         # Submit downloads to executor
         fut = []
         for download in downloads:
-            progress.add_file(download.bucket,
-                              download.key)
-            fut.append(lexecutor.submit(
-                    functools.partial(download_file,
-                                      download)))
+            try:
+                progress.add_file(download.bucket,
+                                download.key)
+                fut.append(lexecutor.submit(
+                        functools.partial(download_file,
+                                        download)))
+            except Exception:
+                progress.errored(download.bucket, download.key)
 
         while(not all([f.done() for f in fut])):
             time.sleep(1)
