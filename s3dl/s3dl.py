@@ -65,7 +65,7 @@ class ProgressPercentage(object):
 
     @staticmethod
     def percentage(a, b):
-        return (a / b) * 100
+        return ((a / b) * 100) if b > 0 else 0.0
 
     @staticmethod
     def sizeof_fmt(a, b, suffix='B'):
