@@ -159,7 +159,6 @@ def parse_arguments(args):
                         default=1)
     parser.add_argument("-k",
                         "--keep-structure",
-                        type=bool,
                         help="Keep remote folder structure",
                         action="store_true",
                         default=False)
